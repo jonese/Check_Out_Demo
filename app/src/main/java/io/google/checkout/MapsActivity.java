@@ -10,11 +10,18 @@ import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.firebase.client.ChildEventListener;
+import com.firebase.client.DataSnapshot;
+import com.firebase.client.Firebase;
+import com.firebase.client.FirebaseError;
+import com.firebase.client.ServerValue;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
 import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.location.places.Place;
+import com.google.android.gms.location.places.PlaceBuffer;
 import com.google.android.gms.location.places.Places;
 import com.google.android.gms.location.places.ui.PlacePicker;
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -23,14 +30,21 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.android.gms.maps.model.MarkerOptions;
+
+import java.util.HashMap;
+import java.util.Map;
 
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, ChildEventListener {
 
     private static final int REQUEST_PLACE_PICKER = 1;
+    private Firebase mFirebase;
     private GoogleMap mMap;
     private GoogleApiClient mGoogleApiClient;
     private LatLngBounds.Builder mBounds = new LatLngBounds.Builder();
+    private static final String FIREBASE_URL = "https://vivid-fire-3375.firebaseio.com/";
+    private static final String FIREBASE_ROOT_NODE = "checkouts";
 
     private void addPointToViewPort(LatLng newPoint) {
         mBounds.include(newPoint);
@@ -53,6 +67,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 .addApi(Places.GEO_DATA_API)
                 .build();
         mGoogleApiClient.connect();
+
+        // Set up Firebase
+        Firebase.setAndroidContext(this);
+        mFirebase = new Firebase(FIREBASE_URL);
+        mFirebase.child(FIREBASE_ROOT_NODE).addChildEventListener((ChildEventListener) this);
     }
 
     /**
@@ -106,12 +125,57 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         if (requestCode == REQUEST_PLACE_PICKER) {
             if (resultCode == Activity.RESULT_OK) {
                 Place place = PlacePicker.getPlace(data, this);
+
+                Map<String, Object> checkoutData = new HashMap<>();
+                checkoutData.put("time", ServerValue.TIMESTAMP);
+
+                mFirebase.child(FIREBASE_ROOT_NODE).child(place.getId()).setValue(checkoutData);
+
             } else if (resultCode == PlacePicker.RESULT_ERROR) {
-                Toast.makeText(this, "Places API failure! Check that the API is enabled for your key",
+                Toast.makeText(this, "Places API failure! Check the API is enabled for your key",
                         Toast.LENGTH_LONG).show();
             }
         } else {
             super.onActivityResult(requestCode, resultCode, data);
         }
+    }
+
+    @Override
+    public void onChildAdded(DataSnapshot dataSnapshot, String s) {
+        String placeId = dataSnapshot.getKey();
+        if (placeId != null) {
+            Places.GeoDataApi
+                    .getPlaceById(mGoogleApiClient, placeId)
+                    .setResultCallback(new ResultCallback<PlaceBuffer>() {
+                                           @Override
+                                           public void onResult(PlaceBuffer places) {
+                                               LatLng location = places.get(0).getLatLng();
+                                               addPointToViewPort(location);
+                                               mMap.addMarker(new MarkerOptions().position(location));
+                                               places.release();
+                                           }
+                                       }
+                    );
+        }
+    }
+
+    @Override
+    public void onChildChanged(DataSnapshot dataSnapshot, String s) {
+
+    }
+
+    @Override
+    public void onChildRemoved(DataSnapshot dataSnapshot) {
+
+    }
+
+    @Override
+    public void onChildMoved(DataSnapshot dataSnapshot, String s) {
+
+    }
+
+    @Override
+    public void onCancelled(FirebaseError firebaseError) {
+
     }
 }
